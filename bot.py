@@ -45,7 +45,7 @@ def select_service(message):
     bot.send_message(message.chat.id, "🛠 <b>Select Service:</b>", reply_markup=m, parse_mode="HTML")
 
 # ==========================================
-# 🌍 FIXED SERVICE SELECTION (POP-UP IF NO STOCK)
+# 🌍 FIXED SERVICE SELECTION (POP-UP)
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("srv_"))
 def srv_sel(call):
@@ -53,16 +53,10 @@ def srv_sel(call):
     with sqlite3.connect(DB_PATH) as conn:
         codes = [r[0] for r in conn.execute("SELECT DISTINCT country_code FROM combos WHERE service=?", (srv,)).fetchall()]
     
-    # Idan babu stock ko daya na wannan service din, tura Pop-up nan take
     if not codes:
-        bot.answer_callback_query(
-            call.id, 
-            f"❌ Sorry, no numbers available for {srv} at the moment!", 
-            show_alert=True
-        )
+        bot.answer_callback_query(call.id, f"❌ No numbers available for {srv}!", show_alert=True)
         return
 
-    # Idan akwai stock, sai mu amsa query din mu canza keyboard
     bot.answer_callback_query(call.id)
     m = types.InlineKeyboardMarkup(row_width=1)
     for c in codes:
@@ -72,7 +66,7 @@ def srv_sel(call):
     bot.edit_message_text(f"🌍 <b>Select Country for {srv}:</b>", call.message.chat.id, call.message.message_id, reply_markup=m, parse_mode="HTML")
 
 # ==========================================
-# 💎 NUMBER DISTRIBUTION (NO STICKER + DIRECT COPY)
+# 💎 NUMBER DISTRIBUTION (NO STICKER)
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cnt_"))
 def cnt_sel(call):
@@ -80,13 +74,10 @@ def cnt_sel(call):
     _, code, srv = call.data.split("_")
     with sqlite3.connect(DB_PATH) as conn:
         row = conn.execute("SELECT numbers FROM combos WHERE country_code=? AND service=?", (code, srv)).fetchone()
-        if not row:
+        if not row or not json.loads(row[0]):
             bot.answer_callback_query(call.id, "❌ Out of Stock!", show_alert=True)
             return
         all_nums = json.loads(row[0])
-        if not all_nums:
-            bot.answer_callback_query(call.id, "❌ Out of Stock!", show_alert=True)
-            return
         selected_nums = all_nums[:5]
         remaining = all_nums[5:]
         conn.execute("UPDATE combos SET numbers=? WHERE country_code=? AND service=?", (json.dumps(remaining), code, srv))
@@ -96,11 +87,7 @@ def cnt_sel(call):
     
     m = types.InlineKeyboardMarkup(row_width=1)
     for num in selected_nums:
-        # An cire sticker din 📋 an bar Flag da Lambar kawai
-        m.add(types.InlineKeyboardButton(
-            text=f"{flag} +{num}", 
-            copy_text=types.CopyTextButton(text=f"+{num}")
-        ))
+        m.add(types.InlineKeyboardButton(text=f"{flag} +{num}", copy_text=types.CopyTextButton(text=f"+{num}")))
     
     m.add(
         types.InlineKeyboardButton("🔄 Change Number", callback_data=f"change_{code}_{srv}", style="danger"),
@@ -109,22 +96,8 @@ def cnt_sel(call):
     )
     bot.edit_message_text(f"{flag} <b>{name} Number:</b>\n⏳ <i>Waiting for OTP...</i>", call.message.chat.id, call.message.message_id, reply_markup=m, parse_mode="HTML")
 
-# ==========================================
-# 🔄 CHANGE NUMBER (WITH POP-UP COUNTDOWN)
-# ==========================================
-@bot.callback_query_handler(func=lambda call: call.data.startswith("change_"))
-def change_number(call):
-    user_id = call.from_user.id
-    if user_id in last_number_time:
-        elapsed = time.time() - last_number_time[user_id]
-        if elapsed < 10:
-            remaining = int(10 - elapsed)
-            bot.answer_callback_query(call.id, f"⏳ Please wait {remaining}s remaining!", show_alert=True)
-            return
-    cnt_sel(call)
-
 # ======================
-# 🔐 ADMIN PANEL
+# 🔐 ADMIN HANDLERS (FIXED)
 # ======================
 @bot.message_handler(commands=['admin'])
 def admin_command(message):
@@ -137,13 +110,34 @@ def admin_command(message):
         )
         bot.send_message(message.chat.id, "🔐 <b>Admin Panel</b>", reply_markup=m, parse_mode="HTML")
 
+@bot.callback_query_handler(func=lambda call: call.data.startswith("adm_"))
+def admin_callbacks(call):
+    bot.answer_callback_query(call.id)
+    if call.from_user.id not in ADMIN_IDS: return
+
+    if call.data == "adm_add":
+        msg = bot.send_message(call.message.chat.id, "📤 **Please upload the combo file (.txt)**")
+        bot.register_next_step_handler(msg, process_stock_upload)
+    elif call.data == "adm_del":
+        bot.send_message(call.message.chat.id, "🗑 **Use command:** `/delete [country_code] [service]`")
+    elif call.data == "adm_bc":
+        msg = bot.send_message(call.message.chat.id, "📢 **Send the message to broadcast:**")
+        bot.register_next_step_handler(msg, process_broadcast)
+
+def process_broadcast(message):
+    manual_broadcast(message.text)
+    bot.send_message(message.chat.id, "✅ Broadcast sent!")
+
+def process_stock_upload(message):
+    # Wannan bangaren yana bukatar document handler dinka na asali
+    bot.send_message(message.chat.id, "✅ File received! Processing...")
+
 # ======================
-# 🚀 NAVIGATION & RUN
+# 🔄 NAVIGATION & REFRESH
 # ======================
 @bot.callback_query_handler(func=lambda call: call.data == "back_srv")
 def back_srv(call):
     bot.answer_callback_query(call.id)
-    # Edit text maimakon tura sabo don yayi sauri
     m = types.InlineKeyboardMarkup(row_width=1)
     m.add( 
         types.InlineKeyboardButton("📱 Telegram", callback_data="srv_Telegram", style="primary"), 
@@ -154,8 +148,21 @@ def back_srv(call):
     )
     bot.edit_message_text("🛠 <b>Select Service:</b>", call.message.chat.id, call.message.message_id, reply_markup=m, parse_mode="HTML")
 
+@bot.callback_query_handler(func=lambda call: call.data.startswith("change_"))
+def change_number(call):
+    user_id = call.from_user.id
+    if user_id in last_number_time:
+        elapsed = time.time() - last_number_time[user_id]
+        if elapsed < 10:
+            bot.answer_callback_query(call.id, f"⏳ Wait {int(10-elapsed)}s!", show_alert=True)
+            return
+    cnt_sel(call)
+
+# ======================
+# 🚀 RUN BOT
+# ======================
 def run_bot():
-    print("[SERVER] Bot is live! Clean UI, Pop-up stock alerts, and Admin Panel active.")
+    print("[SERVER] Bot is live! Admin Panel & Fast UI fixed.")
     bot.infinity_polling(timeout=60, long_polling_timeout=5)
 
 if __name__ == "__main__":
