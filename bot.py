@@ -111,6 +111,34 @@ def cnt_sel(call):
     )
     bot.edit_message_text(f"{flag} <b>{name} Number:</b>\n⏳ <i>Waiting for OTP...</i>", call.message.chat.id, call.message.message_id, reply_markup=m, parse_mode="HTML")
 
+# ==========================================
+# 🔄 REFRESH BUTTON (FIXED - POPUP MESSAGE)
+# ==========================================
+@bot.callback_query_handler(func=lambda call: call.data == "refresh_services")
+def refresh_services(call):
+    bot.answer_callback_query(call.id, "✅ Refreshed successfully!", show_alert=True)
+
+# ==========================================
+# 🌐 CHANGE COUNTRY (FIXED)
+# ==========================================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("chcountry_"))
+def change_country(call):
+    srv = call.data.split("_")[1]
+    with sqlite3.connect(DB_PATH) as conn:
+        codes = [r[0] for r in conn.execute("SELECT DISTINCT country_code FROM combos WHERE service=?", (srv,)).fetchall()]
+    
+    if not codes:
+        bot.answer_callback_query(call.id, f"❌ No countries available for {srv}!", show_alert=True)
+        return
+
+    bot.answer_callback_query(call.id)
+    m = types.InlineKeyboardMarkup(row_width=1)
+    for c in codes:
+        name, flag = COUNTRY_DATA.get(c, (c, "🌍"))
+        m.add(types.InlineKeyboardButton(f"{flag} {name}", callback_data=f"cnt_{c}_{srv}", style="primary"))
+    m.add(types.InlineKeyboardButton("🔙 Back", callback_data="back_srv", style="danger"))
+    bot.edit_message_text(f"🌍 <b>Select Country for {srv}:</b>", call.message.chat.id, call.message.message_id, reply_markup=m, parse_mode="HTML")
+
 # ======================
 # 🔐 ADMIN HANDLERS (FROM OLD FILE - COMPLETE)
 # ======================
@@ -184,7 +212,7 @@ def handle_file(message):
         del user_states[message.from_user.id]
 
 # ======================
-# 🔄 NAVIGATION & REFRESH
+# 🔄 NAVIGATION & OTHER HANDLERS
 # ======================
 @bot.callback_query_handler(func=lambda call: call.data == "back_srv")
 def back_srv(call):
@@ -213,7 +241,7 @@ def change_number(call):
 # 🚀 RUN BOT
 # ======================
 def run_bot():
-    print("[SERVER] Bot is live! Admin Panel & Fast UI fixed.")
+    print("[SERVER] Bot is live! Refresh popup & Change Country fixed.")
     bot.infinity_polling(timeout=60, long_polling_timeout=5)
 
 if __name__ == "__main__":
