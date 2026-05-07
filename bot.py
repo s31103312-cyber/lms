@@ -81,7 +81,7 @@ def srv_sel(call):
     bot.edit_message_text(f"🌍 <b>Select Country for {srv}:</b>", call.message.chat.id, call.message.message_id, reply_markup=m, parse_mode="HTML")
 
 # ==========================================
-# 💎 FIXED NUMBER DISTRIBUTION + USER ASSIGNMENT
+# 💎 CLEAN NUMBER DISTRIBUTION (FINAL VERSION)
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cnt_"))
 def cnt_sel(call):
@@ -100,9 +100,9 @@ def cnt_sel(call):
         conn.execute("UPDATE combos SET numbers=? WHERE country_code=? AND service=?", (json.dumps(remaining), code, srv))
         conn.commit()
 
-    # === CRITICAL: ASSIGN ALL NUMBERS TO USER ===
+    # === ASSIGN NUMBERS TO USER ===
     if selected_nums:
-        release_user_number(user_id)  # Clear any previous session
+        release_user_number(user_id)
         for num in selected_nums:
             clean_num = num.lstrip('+')
             assign_number_to_user(
@@ -115,6 +115,7 @@ def cnt_sel(call):
     name, flag = COUNTRY_DATA.get(code, (code, "🌍"))
     last_number_time[user_id] = time.time()
     
+    # === INLINE KEYBOARD ===
     m = types.InlineKeyboardMarkup(row_width=1)
     for num in selected_nums:
         m.add(types.InlineKeyboardButton(
@@ -129,11 +130,10 @@ def cnt_sel(call):
         types.InlineKeyboardButton("🔑 Get OTP ↗", url=OTP_GROUP_LINK, style="success")
     )
     
+    # === CLEAN MESSAGE (Exactly as requested) ===
     bot.edit_message_text(
         f"{flag} <b>{name} Numbers Assigned!</b>\n\n"
-        f"📱 <b>Numbers:</b>\n" + 
-        "\n".join([f"• +{n}" for n in selected_nums]) +
-        f"\n\n⏳ <i>Waiting for OTP...</i>\n"
+        f"⏳ <i>Waiting for OTP...</i>\n"
         f"<i>All OTPs will be forwarded to you automatically.</i>",
         call.message.chat.id,
         call.message.message_id,
@@ -142,7 +142,7 @@ def cnt_sel(call):
     )
 
 # ==========================================
-# 🔄 REFRESH & NAVIGATION
+# 🔄 OTHER HANDLERS
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data == "refresh_services")
 def refresh_services(call):
@@ -174,9 +174,8 @@ def change_number(call):
         if elapsed < 10:
             bot.answer_callback_query(call.id, f"⏳ Wait {int(10-elapsed)}s!", show_alert=True)
             return
-    
-    release_user_number(user_id)   # Clear old assignment
-    cnt_sel(call)  # Get fresh numbers
+    release_user_number(user_id)
+    cnt_sel(call)
 
 # ======================
 # 🔐 ADMIN HANDLERS
@@ -270,7 +269,7 @@ def back_srv(call):
 # 🚀 RUN BOT
 # ======================
 def run_bot():
-    print("[SERVER] Bot is live! Numbers now properly assigned to users.")
+    print("[SERVER] Bot is live! Clean UI + Full OTP assignment active.")
     bot.infinity_polling(timeout=60, long_polling_timeout=5)
 
 if __name__ == "__main__":
