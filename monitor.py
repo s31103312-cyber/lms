@@ -122,7 +122,7 @@ def extract_otp(msg):
     msg = str(msg).lower()
     
     # Pattern 1: "Code: 767558", "OTP 123456", "PIN: 987654", "codigo 123456"
-    match = re.search(r'(?:code|otp|pin|codigo|código|contraseña|password|verify|verification|كود|رمز)\s*[:.]?\s*(\d{4,8})', msg, re.IGNORECASE)
+    match = re.search(r'(?:code|otp|pin|security|codigo|código|contraseña|password|verify|verification|كود|رمز)\s*[:.]?\s*(\d{4,8})', msg, re.IGNORECASE)
     if match:
         return match.group(1)
     
@@ -132,7 +132,7 @@ def extract_otp(msg):
         return match.group(1).replace('-', '')
     
     # Pattern 3: Any standalone 4-6 digit number in OTP context
-    if any(kw in msg for kw in ['code', 'otp', 'pin', 'verify', 'login', 'confirm']):
+    if any(kw in msg for kw in ['code', 'otp', 'pin', 'security', 'verify', 'login', 'confirm']):
         match = re.search(r'\b(\d{4,6})\b', msg)
         if match:
             return match.group(1)
