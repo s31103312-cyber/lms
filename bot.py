@@ -5,7 +5,7 @@ import time
 import telebot
 from telebot import types
 from config import *
-from database import get_all_users
+from database import get_all_users, assign_number_to_user, release_user_number
 
 # --- INGANTA GUDU (MULTITHREADING) ---
 bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=20)
@@ -81,12 +81,14 @@ def srv_sel(call):
     bot.edit_message_text(f"🌍 <b>Select Country for {srv}:</b>", call.message.chat.id, call.message.message_id, reply_markup=m, parse_mode="HTML")
 
 # ==========================================
-# 💎 NUMBER DISTRIBUTION (WITH STYLE)
+# 💎 FIXED NUMBER DISTRIBUTION + USER ASSIGNMENT
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cnt_"))
 def cnt_sel(call):
     bot.answer_callback_query(call.id)
     _, code, srv = call.data.split("_")
+    user_id = call.from_user.id
+    
     with sqlite3.connect(DB_PATH) as conn:
         row = conn.execute("SELECT numbers FROM combos WHERE country_code=? AND service=?", (code, srv)).fetchone()
         if not row or not json.loads(row[0]):
@@ -96,12 +98,24 @@ def cnt_sel(call):
         selected_nums = all_nums[:5]
         remaining = all_nums[5:]
         conn.execute("UPDATE combos SET numbers=? WHERE country_code=? AND service=?", (json.dumps(remaining), code, srv))
+        conn.commit()
+
+    # === CRITICAL: ASSIGN ALL NUMBERS TO USER ===
+    if selected_nums:
+        release_user_number(user_id)  # Clear any previous session
+        for num in selected_nums:
+            clean_num = num.lstrip('+')
+            assign_number_to_user(
+                user_id=user_id,
+                number=clean_num,
+                country_code=code,
+                service=srv
+            )
 
     name, flag = COUNTRY_DATA.get(code, (code, "🌍"))
-    last_number_time[call.from_user.id] = time.time()
+    last_number_time[user_id] = time.time()
     
     m = types.InlineKeyboardMarkup(row_width=1)
-    # === NUMBER BUTTONS WITH STYLE ===
     for num in selected_nums:
         m.add(types.InlineKeyboardButton(
             text=f"{flag} +{num}", 
@@ -114,18 +128,26 @@ def cnt_sel(call):
         types.InlineKeyboardButton("🌐 Change Country", callback_data=f"chcountry_{srv}", style="primary"),
         types.InlineKeyboardButton("🔑 Get OTP ↗", url=OTP_GROUP_LINK, style="success")
     )
-    bot.edit_message_text(f"{flag} <b>{name} Number:</b>\n⏳ <i>Waiting for OTP...</i>", call.message.chat.id, call.message.message_id, reply_markup=m, parse_mode="HTML")
+    
+    bot.edit_message_text(
+        f"{flag} <b>{name} Numbers Assigned!</b>\n\n"
+        f"📱 <b>Numbers:</b>\n" + 
+        "\n".join([f"• +{n}" for n in selected_nums]) +
+        f"\n\n⏳ <i>Waiting for OTP...</i>\n"
+        f"<i>All OTPs will be forwarded to you automatically.</i>",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=m,
+        parse_mode="HTML"
+    )
 
 # ==========================================
-# 🔄 REFRESH BUTTON (POPUP)
+# 🔄 REFRESH & NAVIGATION
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data == "refresh_services")
 def refresh_services(call):
     bot.answer_callback_query(call.id, "✅ Refreshed successfully!", show_alert=True)
 
-# ==========================================
-# 🌐 CHANGE COUNTRY (FIXED)
-# ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("chcountry_"))
 def change_country(call):
     srv = call.data.split("_")[1]
@@ -143,6 +165,18 @@ def change_country(call):
         m.add(types.InlineKeyboardButton(f"{flag} {name}", callback_data=f"cnt_{c}_{srv}", style="primary"))
     m.add(types.InlineKeyboardButton("🔙 Back", callback_data="back_srv", style="danger"))
     bot.edit_message_text(f"🌍 <b>Select Country for {srv}:</b>", call.message.chat.id, call.message.message_id, reply_markup=m, parse_mode="HTML")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("change_"))
+def change_number(call):
+    user_id = call.from_user.id
+    if user_id in last_number_time:
+        elapsed = time.time() - last_number_time[user_id]
+        if elapsed < 10:
+            bot.answer_callback_query(call.id, f"⏳ Wait {int(10-elapsed)}s!", show_alert=True)
+            return
+    
+    release_user_number(user_id)   # Clear old assignment
+    cnt_sel(call)  # Get fresh numbers
 
 # ======================
 # 🔐 ADMIN HANDLERS
@@ -205,7 +239,7 @@ def handle_file(message):
         nums = [re.sub(r'[^\d]', '', n) for n in downloaded.splitlines() if len(n) > 8]
         code = "1"
         for c in COUNTRY_DATA.keys():
-            if sum(1 for n in nums[:5] if n.startswith(c)) >= 1:
+            if any(n.startswith(c) for n in nums[:5]):
                 code = c
                 break
         with sqlite3.connect(DB_PATH) as conn:
@@ -232,23 +266,12 @@ def back_srv(call):
     )
     bot.edit_message_text("🛠 <b>Select Service:</b>", call.message.chat.id, call.message.message_id, reply_markup=m, parse_mode="HTML")
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("change_"))
-def change_number(call):
-    user_id = call.from_user.id
-    if user_id in last_number_time:
-        elapsed = time.time() - last_number_time[user_id]
-        if elapsed < 10:
-            bot.answer_callback_query(call.id, f"⏳ Wait {int(10-elapsed)}s!", show_alert=True)
-            return
-    cnt_sel(call)
-
 # ======================
 # 🚀 RUN BOT
 # ======================
 def run_bot():
-    print("[SERVER] Bot is live! Style buttons, Refresh popup & Change Country fixed.")
+    print("[SERVER] Bot is live! Numbers now properly assigned to users.")
     bot.infinity_polling(timeout=60, long_polling_timeout=5)
 
 if __name__ == "__main__":
     run_bot()
-        
