@@ -60,7 +60,7 @@ def select_service(message):
     bot.send_message(message.chat.id, "🛠 <b>Select Service:</b>", reply_markup=m, parse_mode="HTML")
 
 # ==========================================
-# 🌍 FIXED SERVICE SELECTION (POP-UP)
+# 🌍 SERVICE SELECTION
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("srv_"))
 def srv_sel(call):
@@ -81,7 +81,7 @@ def srv_sel(call):
     bot.edit_message_text(f"🌍 <b>Select Country for {srv}:</b>", call.message.chat.id, call.message.message_id, reply_markup=m, parse_mode="HTML")
 
 # ==========================================
-# 💎 NUMBER DISTRIBUTION (NO STICKER)
+# 💎 NUMBER DISTRIBUTION (WITH STYLE)
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cnt_"))
 def cnt_sel(call):
@@ -101,8 +101,13 @@ def cnt_sel(call):
     last_number_time[call.from_user.id] = time.time()
     
     m = types.InlineKeyboardMarkup(row_width=1)
+    # === NUMBER BUTTONS WITH STYLE ===
     for num in selected_nums:
-        m.add(types.InlineKeyboardButton(text=f"{flag} +{num}", copy_text=types.CopyTextButton(text=f"+{num}")))
+        m.add(types.InlineKeyboardButton(
+            text=f"{flag} +{num}", 
+            copy_text=types.CopyTextButton(text=f"+{num}"),
+            style="primary"
+        ))
     
     m.add(
         types.InlineKeyboardButton("🔄 Change Number", callback_data=f"change_{code}_{srv}", style="danger"),
@@ -112,7 +117,7 @@ def cnt_sel(call):
     bot.edit_message_text(f"{flag} <b>{name} Number:</b>\n⏳ <i>Waiting for OTP...</i>", call.message.chat.id, call.message.message_id, reply_markup=m, parse_mode="HTML")
 
 # ==========================================
-# 🔄 REFRESH BUTTON (FIXED - POPUP MESSAGE)
+# 🔄 REFRESH BUTTON (POPUP)
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data == "refresh_services")
 def refresh_services(call):
@@ -140,7 +145,7 @@ def change_country(call):
     bot.edit_message_text(f"🌍 <b>Select Country for {srv}:</b>", call.message.chat.id, call.message.message_id, reply_markup=m, parse_mode="HTML")
 
 # ======================
-# 🔐 ADMIN HANDLERS (FROM OLD FILE - COMPLETE)
+# 🔐 ADMIN HANDLERS
 # ======================
 @bot.message_handler(commands=['admin'])
 def admin_command(message):
@@ -212,7 +217,7 @@ def handle_file(message):
         del user_states[message.from_user.id]
 
 # ======================
-# 🔄 NAVIGATION & OTHER HANDLERS
+# 🔄 NAVIGATION
 # ======================
 @bot.callback_query_handler(func=lambda call: call.data == "back_srv")
 def back_srv(call):
@@ -241,7 +246,7 @@ def change_number(call):
 # 🚀 RUN BOT
 # ======================
 def run_bot():
-    print("[SERVER] Bot is live! Refresh popup & Change Country fixed.")
+    print("[SERVER] Bot is live! Style buttons, Refresh popup & Change Country fixed.")
     bot.infinity_polling(timeout=60, long_polling_timeout=5)
 
 if __name__ == "__main__":
