@@ -9,88 +9,84 @@ from urllib.parse import urlparse
 # RAILWAY POSTGRES CONNECTION
 # ======================
 def get_db():
-    # Railway provides DATABASE_URL by default
     database_url = os.getenv("DATABASE_URL")
     
-    if database_url:
-        # Parse DATABASE_URL for connection
-        result = urlparse(database_url)
-        conn = psycopg2.connect(
-            dbname=result.path[1:],          # Remove leading '/'
-            user=result.username,
-            password=result.password,
-            host=result.hostname,
-            port=result.port or 5432,
-            sslmode="require"                # Railway requires SSL
-        )
-    else:
-        # Fallback (for local/dev)
-        conn = psycopg2.connect(
-            host=os.getenv("PGHOST", "localhost"),
-            database=os.getenv("PGDATABASE", "railway"),
-            user=os.getenv("PGUSER", "postgres"),
-            password=os.getenv("PGPASSWORD"),
-            port=int(os.getenv("PGPORT", 5432)),
-            sslmode="require"
-        )
+    if not database_url:
+        raise Exception("❌ DATABASE_URL environment variable is missing on Railway!")
+
+    result = urlparse(database_url)
+    
+    conn = psycopg2.connect(
+        dbname=result.path[1:],
+        user=result.username,
+        password=result.password,
+        host=result.hostname,
+        port=result.port or 5432,
+        sslmode="require"
+    )
     
     conn.set_session(autocommit=False)
     return conn
 
 def init_db():
-    conn = get_db()
-    c = conn.cursor()
-    
-    c.execute('''
-    CREATE TABLE IF NOT EXISTS users (
-        user_id BIGINT PRIMARY KEY,
-        username TEXT,
-        first_name TEXT,
-        status TEXT DEFAULT 'none',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        
+        c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id BIGINT PRIMARY KEY,
+            username TEXT,
+            first_name TEXT,
+            status TEXT DEFAULT 'none',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
 
-    CREATE TABLE IF NOT EXISTS user_numbers (
-        id SERIAL PRIMARY KEY,
-        user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
-        number TEXT NOT NULL,
-        country_code TEXT,
-        service TEXT,
-        assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(user_id, number)
-    );
+        CREATE TABLE IF NOT EXISTS user_numbers (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+            number TEXT NOT NULL,
+            country_code TEXT,
+            service TEXT,
+            assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, number)
+        );
 
-    CREATE TABLE IF NOT EXISTS combos (
-        id SERIAL PRIMARY KEY,
-        country_code TEXT NOT NULL,
-        service TEXT NOT NULL,
-        numbers JSONB NOT NULL DEFAULT '[]'::jsonb,
-        UNIQUE(country_code, service)
-    );
+        CREATE TABLE IF NOT EXISTS combos (
+            id SERIAL PRIMARY KEY,
+            country_code TEXT NOT NULL,
+            service TEXT NOT NULL,
+            numbers JSONB NOT NULL DEFAULT '[]'::jsonb,
+            UNIQUE(country_code, service)
+        );
 
-    CREATE TABLE IF NOT EXISTS otp_logs (
-        id SERIAL PRIMARY KEY,
-        user_id BIGINT,
-        number TEXT,
-        service TEXT,
-        otp_code TEXT,
-        sender TEXT,
-        message_body TEXT,
-        received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
+        CREATE TABLE IF NOT EXISTS otp_logs (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
+            number TEXT,
+            service TEXT,
+            otp_code TEXT,
+            sender TEXT,
+            message_body TEXT,
+            received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
 
-    CREATE TABLE IF NOT EXISTS processed_otps (
-        id SERIAL PRIMARY KEY,
-        number TEXT NOT NULL,
-        otp_code TEXT NOT NULL,
-        received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(number, otp_code)
-    );
-    ''')
-    
-    conn.commit()
-    conn.close()
-    print("✅ Railway PostgreSQL Database initialized successfully.")
+        CREATE TABLE IF NOT EXISTS processed_otps (
+            id SERIAL PRIMARY KEY,
+            number TEXT NOT NULL,
+            otp_code TEXT NOT NULL,
+            received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(number, otp_code)
+        );
+        ''')
+        
+        conn.commit()
+        conn.close()
+        print("✅ Railway PostgreSQL Database initialized successfully.")
+        
+    except Exception as e:
+        print(f"❌ Database initialization failed: {e}")
+        raise
 
 # Initialize on import
 init_db()
