@@ -6,13 +6,28 @@ from psycopg2.extras import RealDictCursor
 from urllib.parse import urlparse
 
 # ======================
-# RAILWAY POSTGRES CONNECTION
+# RAILWAY POSTGRES CONNECTION (ROBUST)
 # ======================
 def get_db():
+    # Priority 1: DATABASE_URL (Recommended)
     database_url = os.getenv("DATABASE_URL")
     
     if not database_url:
-        raise Exception("❌ DATABASE_URL environment variable is missing on Railway!")
+        # Priority 2: Build from Railway PG variables
+        host = os.getenv("PGHOST") or os.getenv("PGHOST_PRIVATE")
+        port = os.getenv("PGPORT", 5432)
+        dbname = os.getenv("PGDATABASE")
+        user = os.getenv("PGUSER")
+        password = os.getenv("PGPASSWORD")
+        
+        if host and dbname and user and password:
+            database_url = f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
+        else:
+            raise Exception(
+                "❌ DATABASE_URL is missing!\n\n"
+                "Fix: Go to your Bot Service → Variables → Add:\n"
+                "DATABASE_URL = ${{Postgres.DATABASE_URL}}  (use reference)"
+            )
 
     result = urlparse(database_url)
     
