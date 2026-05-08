@@ -1,16 +1,14 @@
 import json
 import re
-import sqlite3
 import time
 import telebot
 from telebot import types
 from config import *
-from database import get_all_users, assign_number_to_user, release_user_number
+from database import get_all_users, assign_number_to_user, release_user_number, get_db, init_db
 
 # --- INGANTA GUDU (MULTITHREADING) ---
 bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=20)
 
-DB_PATH = DB_FILE
 user_states = {}
 last_number_time = {}
 
@@ -18,7 +16,7 @@ last_number_time = {}
 # 🚀 NOTIFICATION SYSTEM
 # ======================
 def send_stock_alert(country_name, flag, service, count):
-    msg = f"""<blockquote>🚀 <b>NEW STOCK ADDED!</b>\n\n🌍 <b>Country:</b> {flag} {country_name}\n🛠 <b>Service:</b> {service}\n🔢 <b>Quantity:</b> {count} Numbers\n\n<i>Available now! Tap "Get Number" to buy.</i></blockquote>"""
+    msg = f"""<blockquote>🚀 <b>NEW STOCK ADDED!</b>\n\n🌍 <b>Country:</b> {flag} {country_name}\n🛠 <b>Service:</b> {service}\n🔢 <b>Quantity:</b> {count} Numbers\n\n<i>Available now! Tap \"Get Number\" to buy.</i></blockquote>"""
     users = get_all_users()
     for u in users:
         try: 
@@ -44,8 +42,15 @@ def manual_broadcast(text):
 # ======================
 @bot.message_handler(commands=['start'])
 def start(message):
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (message.from_user.id,))
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO users (user_id)
+        VALUES (%s)
+        ON CONFLICT (user_id) DO NOTHING
+    """, (message.from_user.id,))
+    conn.commit()
+    conn.close()
     select_service(message)
 
 def select_service(message):
@@ -65,9 +70,12 @@ def select_service(message):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("srv_"))
 def srv_sel(call):
     srv = call.data.split("_")[1]
-    with sqlite3.connect(DB_PATH) as conn:
-        codes = [r[0] for r in conn.execute("SELECT DISTINCT country_code FROM combos WHERE service=?", (srv,)).fetchall()]
-    
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT DISTINCT country_code FROM combos WHERE service=%s", (srv,))
+    codes = [r[0] for r in c.fetchall()]
+    conn.close()
+
     if not codes:
         bot.answer_callback_query(call.id, f"❌ No numbers available for {srv}!", show_alert=True)
         return
@@ -88,17 +96,24 @@ def cnt_sel(call):
     bot.answer_callback_query(call.id)
     _, code, srv = call.data.split("_")
     user_id = call.from_user.id
-    
-    with sqlite3.connect(DB_PATH) as conn:
-        row = conn.execute("SELECT numbers FROM combos WHERE country_code=? AND service=?", (code, srv)).fetchone()
-        if not row or not json.loads(row[0]):
-            bot.answer_callback_query(call.id, "❌ Out of Stock!", show_alert=True)
-            return
-        all_nums = json.loads(row[0])
-        selected_nums = all_nums[:5]
-        remaining = all_nums[5:]
-        conn.execute("UPDATE combos SET numbers=? WHERE country_code=? AND service=?", (json.dumps(remaining), code, srv))
-        conn.commit()
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT numbers FROM combos WHERE country_code=%s AND service=%s", (code, srv))
+    row = c.fetchone()
+
+    if not row or not json.loads(row['numbers']):
+        conn.close()
+        bot.answer_callback_query(call.id, "❌ Out of Stock!", show_alert=True)
+        return
+
+    all_nums = json.loads(row['numbers'])
+    selected_nums = all_nums[:5]
+    remaining = all_nums[5:]
+
+    c.execute("UPDATE combos SET numbers=%s WHERE country_code=%s AND service=%s", (json.dumps(remaining), code, srv))
+    conn.commit()
+    conn.close()
 
     # === ASSIGN NUMBERS TO USER ===
     if selected_nums:
@@ -114,7 +129,7 @@ def cnt_sel(call):
 
     name, flag = COUNTRY_DATA.get(code, (code, "🌍"))
     last_number_time[user_id] = time.time()
-    
+
     # === INLINE KEYBOARD ===
     m = types.InlineKeyboardMarkup(row_width=1)
     for num in selected_nums:
@@ -123,13 +138,13 @@ def cnt_sel(call):
             copy_text=types.CopyTextButton(text=f"+{num}"),
             style="primary"
         ))
-    
+
     m.add(
         types.InlineKeyboardButton("🔄 Change Number", callback_data=f"change_{code}_{srv}", style="danger"),
         types.InlineKeyboardButton("🌐 Change Country", callback_data=f"chcountry_{srv}", style="primary"),
         types.InlineKeyboardButton("🔑 Get OTP ↗", url=OTP_GROUP_LINK, style="success")
     )
-    
+
     # === CLEAN MESSAGE (Exactly as requested) ===
     bot.edit_message_text(
         f"{flag} <b>{name} Numbers Assigned!</b>\n\n"
@@ -151,9 +166,12 @@ def refresh_services(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("chcountry_"))
 def change_country(call):
     srv = call.data.split("_")[1]
-    with sqlite3.connect(DB_PATH) as conn:
-        codes = [r[0] for r in conn.execute("SELECT DISTINCT country_code FROM combos WHERE service=?", (srv,)).fetchall()]
-    
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT DISTINCT country_code FROM combos WHERE service=%s", (srv,))
+    codes = [r[0] for r in c.fetchall()]
+    conn.close()
+
     if not codes:
         bot.answer_callback_query(call.id, f"❌ No countries available for {srv}!", show_alert=True)
         return
@@ -210,9 +228,11 @@ def delete_stock_menu(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("purge_"))
 def process_purge(call):
     srv = call.data.split("_")[1]
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("DELETE FROM combos WHERE service=?", (srv,))
-        conn.commit()
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM combos WHERE service=%s", (srv,))
+    conn.commit()
+    conn.close()
     bot.answer_callback_query(call.id, f"✅ Cleared {srv} stock.", show_alert=True)
 
 @bot.callback_query_handler(func=lambda call: call.data == "adm_add")
@@ -241,9 +261,11 @@ def handle_file(message):
             if any(n.startswith(c) for n in nums[:5]):
                 code = c
                 break
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.execute("INSERT INTO combos (country_code, service, numbers) VALUES (?, ?, ?)", (code, srv, json.dumps(nums)))
-            conn.commit()
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("INSERT INTO combos (country_code, service, numbers) VALUES (%s, %s, %s)", (code, srv, json.dumps(nums)))
+        conn.commit()
+        conn.close()
         bot.reply_to(message, f"✅ Added {len(nums)} numbers.")
         name, flag = COUNTRY_DATA.get(code, (code, "🌍"))
         send_stock_alert(name, flag, srv, len(nums))
@@ -269,7 +291,9 @@ def back_srv(call):
 # 🚀 RUN BOT
 # ======================
 def run_bot():
-    print("[SERVER] Bot is live! Clean UI + Full OTP assignment active.")
+    # Initialize database before starting bot
+    init_db()
+    print("[SERVER] Bot is live! PostgreSQL + Full OTP assignment active.")
     bot.infinity_polling(timeout=60, long_polling_timeout=5)
 
 if __name__ == "__main__":
