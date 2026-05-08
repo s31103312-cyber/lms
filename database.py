@@ -15,7 +15,7 @@ def init_db():
     conn = get_db()
     c = conn.cursor()
 
-    # Users table - FIXED: Added created_at column
+    # Users table
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id BIGINT PRIMARY KEY,
@@ -26,7 +26,7 @@ def init_db():
         )
     """)
 
-    # User numbers table - FIXED: UNIQUE on number only, CASCADE delete
+    # User numbers table
     c.execute("""
         CREATE TABLE IF NOT EXISTS user_numbers (
             id SERIAL PRIMARY KEY,
@@ -91,14 +91,43 @@ def init_db():
         ON user_numbers(status)
     """)
 
-    # FIX: Add created_at column if it doesn't exist (for existing databases)
+    # ============================================================
+    # FIX: Add missing columns to existing tables (backward compat)
+    # ============================================================
+
+    # Add status column to users if missing
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'none'")
+    except Exception as e:
+        print(f"[DB INIT] status column: {e}")
+
+    # Add created_at column to users if missing
     try:
         c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-    except:
-        pass
+    except Exception as e:
+        print(f"[DB INIT] created_at column: {e}")
+
+    # Add assigned_at column to user_numbers if missing
+    try:
+        c.execute("ALTER TABLE user_numbers ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    except Exception as e:
+        print(f"[DB INIT] assigned_at column: {e}")
+
+    # Add status column to user_numbers if missing
+    try:
+        c.execute("ALTER TABLE user_numbers ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'")
+    except Exception as e:
+        print(f"[DB INIT] user_numbers.status column: {e}")
+
+    # Add is_primary column to user_numbers if missing
+    try:
+        c.execute("ALTER TABLE user_numbers ADD COLUMN IF NOT EXISTS is_primary BOOLEAN DEFAULT false")
+    except Exception as e:
+        print(f"[DB INIT] is_primary column: {e}")
 
     conn.commit()
     conn.close()
+    print("[DB INIT] ✅ Database initialized successfully")
 
 # === USER OPERATIONS ===
 
@@ -270,7 +299,6 @@ def get_all_users():
     conn = get_db()
     c = conn.cursor()
 
-    # FIX: Use COALESCE to handle NULL created_at for backward compatibility
     c.execute("""
         SELECT 
             u.user_id,
