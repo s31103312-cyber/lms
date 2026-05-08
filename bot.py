@@ -73,8 +73,11 @@ def srv_sel(call):
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT DISTINCT country_code FROM combos WHERE service=%s", (srv,))
-    codes = [r[0] for r in c.fetchall()]
+    rows = c.fetchall()
     conn.close()
+
+    # FIX: RealDictCursor returns dicts, not tuples - use key access
+    codes = [r['country_code'] for r in rows]
 
     if not codes:
         bot.answer_callback_query(call.id, f"❌ No numbers available for {srv}!", show_alert=True)
@@ -169,8 +172,11 @@ def change_country(call):
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT DISTINCT country_code FROM combos WHERE service=%s", (srv,))
-    codes = [r[0] for r in c.fetchall()]
+    rows = c.fetchall()
     conn.close()
+
+    # FIX: RealDictCursor returns dicts, not tuples - use key access
+    codes = [r['country_code'] for r in rows]
 
     if not codes:
         bot.answer_callback_query(call.id, f"❌ No countries available for {srv}!", show_alert=True)
